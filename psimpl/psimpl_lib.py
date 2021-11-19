@@ -95,7 +95,8 @@ def checkGzip_openfile(filename, mode = 'r'):
 def find_missingVals(filename, 
                      nonFeatureKeys = ['PSMId', 'Label', 'peptide', 'proteinIds'],
                      missingValueList = ['NA', 'na'],
-                     load_observedVals = True):
+                     load_observedVals = True, 
+                     verb = 0):
     """ Parse Percolator PIN file and find rows/features with missing values
 
         For n input features and m total file fields, the file format is:
@@ -146,7 +147,11 @@ def find_missingVals(filename,
 
     constKeys = set(nonFeatureKeys) # exclude these when reserializing data
     keys = []
-    print(headerInOrder)
+
+    if verb > 0:
+        print("Header fields for PIN file:")
+        print(headerInOrder)
+
     for h in headerInOrder: # keep order of keys intact
         if h not in constKeys and h != '':
             keys.append(h)
@@ -373,7 +378,7 @@ class psm_imputer(object):
 
         # Find missing values in supplied PIN file
         # na_tracker is a missing_value_tracker object
-        self.na_tracker = find_missingVals(pinfile)
+        self.na_tracker = find_missingVals(pinfile, verb = self.verb)
         # grab NA info
         self.na_rows = self.na_tracker.get_missing_rows()
         self.na_cols = self.na_tracker.get_missing_cols()
@@ -404,7 +409,8 @@ class psm_imputer(object):
 
         # Check that parameters are set
         assert self.regressor, "Regression scheme not specified, exitting"
-        assert self.alpha and regressor != 'LinearRegression', "Regression alpha set to none, exitting"
+        if regressor != 'LinearRegression':
+            assert self.alpha, "Regression alpha set to none, exitting"
 
         if self.verb:
             print("%s regression selected" % (regressor))
@@ -454,8 +460,8 @@ class psm_imputer(object):
         full_rows = list([i for i in range(nr) if i not in set(na_rows)])
         nonmissing_columns = [i for i in range(nc) if i not in set(na_cols)]
 
-        if self.verb:
-            print("Imputing missing values:")
+        if self.verb >= 0:
+            print("Imputing missing values")
         X = feature_matrix[np.ix_(full_rows, nonmissing_columns)]
         Y = feature_matrix[np.ix_(full_rows, na_cols)]
         # train regressor

@@ -24,7 +24,6 @@ LICENSE='Apache 2.0'
 CLASSIFIERS = ["Natural Language :: English",
                "Development Status :: 3 - Alpha",
                "Intended Audience :: Science/Research",
-               "License :: OSI Approved :: The Open Software License 3.0 "
                "License :: OSI Approved :: Apache Software License",
                "Topic :: Scientific/Engineering :: Bio-Informatics",
                "Operating System :: MacOS",

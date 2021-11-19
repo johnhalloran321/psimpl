@@ -51,7 +51,7 @@ def main():
 
     psimplGroup.add_argument('--gzip-output', action='store_true', help = 'Compress output file using gzip.')
 
-    psimplGroup.add_argument('--verbose', type = int, action= 'store', default=1, help='Specify the verbosity of the current command.')
+    psimplGroup.add_argument('--verbose', type = int, action= 'store', default=0, help='Specify the verbosity of the current command.')
 
     _args = parser.parse_args()
 
@@ -59,11 +59,11 @@ def main():
     _verbose =_args.verbose
 
     assert _args.pin != None, "Please supply Percolator PIN file to impute missing values"
+
+    #########################
+    # Run imputation worflow
+    #########################
     impute_and_write_pin(_args)
-    # impute_and_write_pin_file(_args.pin, 
-    #                           _args.output_pin, 
-    #                           gzipOutput = False, 
-    #                           regressor = _args.impute_regressor)
 
 if __name__ == '__main__':
     main()
