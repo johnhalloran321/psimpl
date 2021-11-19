@@ -25,7 +25,9 @@ def impute_and_write_pin(args):
         if args.features_subset:
             feature_subset.parse_feature_subset(args.features_subset)
 
-    feature_subset.print
+
+    if args.verbose:
+        feature_subset.print
     pi = psm_imputer(args.pin, 
                      verb = args.verbose,
                      debug_mode = args.turn_on_debug_mode)
@@ -33,7 +35,7 @@ def impute_and_write_pin(args):
     print(args.impute_regressor)
     pi.set_regressor(regressor = args.impute_regressor)
     # Solve regression problem
-    pi.impute()
+    pi.impute(feature_subset)
     # Write results to output PIN
     pi.write_imputed_values(args.output_pin, args.gzip_output)
 

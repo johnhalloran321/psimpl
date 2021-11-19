@@ -93,7 +93,7 @@ def checkGzip_openfile(filename, mode = 'r'):
         return open(filename, mode)
 
 def find_missingVals(filename, 
-                     nonFeatureKeys = ['PSMId', 'Label', 'peptide', 'proteinIds'],
+                     nonFeatureKeys = ['PSMId', 'ScanNr', 'Label', 'peptide', 'proteinIds'],
                      missingValueList = ['NA', 'na'],
                      load_observedVals = True, 
                      verb = 0):
@@ -193,7 +193,8 @@ def load_percolator_feature_matrix(filename,
                                    countUniquePeptides = False, 
                                    message = '', 
                                    na_rows = set([]),
-                                   na_features = set([])):
+                                   na_features = set([]),
+                                   feature_subset = None):
     """ Load Percolator feature matrix generated for each crossvalidation test bin
 
         For n input features and m total file fields, the file format is:
@@ -209,7 +210,7 @@ def load_percolator_feature_matrix(filename,
     f = open(filename, 'r')
     r = csv.DictReader(f, delimiter = '\t', skipinitialspace = True)
     headerInOrder = r.fieldnames
-    nonFeatureKeys = ['PSMId', 'Label', 'peptide', 'proteinIds']
+    nonFeatureKeys = ['PSMId', 'Label', 'peptide', 'proteinIds'] # , 'ScanNr']
 
     psmId_field = 'SpecId'
     if psmId_field not in headerInOrder:
@@ -244,6 +245,12 @@ def load_percolator_feature_matrix(filename,
     for h in headerInOrder: # keep order of keys intact
         if h not in constKeys and h!= '':
             keys.append(h)
+
+    if feature_subset:
+        print(keys)
+        feature_subset.print
+        print("Overlapping features:")
+        print(feature_subset.return_overlapping_features(keys))
     featureNames = []
     for k in keys:
         featureNames.append(k)
@@ -301,7 +308,6 @@ class simple_feature_string_collection(object):
     def __init__(self):
         self.feature_inds = []
         self.feature_strings = []
-        self.feature_string_hash = set([])
 
     def parse_feature_subset(self, subset_string):
         """ Given comma-delimited string, parse into numerical and string values
@@ -332,6 +338,17 @@ class simple_feature_string_collection(object):
         if not self.feature_inds and not self.feature_strings:
             return True
         return False
+
+    def return_overlapping_features(self, feature_names):
+        """ Given list of feature names, return corresponding subset of features
+        """
+        subset_of_features = []
+        feature_ind_hash = set(self.feature_inds)
+        feature_string_hash = set(self.feature_strings)
+        for i,feature in enumerate(feature_names):
+            if i in feature_ind_hash or feature in feature_string_hash:
+                subset_of_features.append(feature)
+        return subset_of_features
 
 class missing_value_tracker(object):
     """ Class detailing missing value info for feature matrices
@@ -468,7 +485,7 @@ class psm_imputer(object):
         else:
             self.linr = linear_model.LinearRegression(normalize = True)
 
-    def impute(self):
+    def impute(self, feature_subset = None):
         """ Perform imputation in the following steps: 
             1.) Load missing value info (*should be* performed on initialization),
             2.) Load feature matrix from pinfile
@@ -489,7 +506,10 @@ class psm_imputer(object):
         # Load feature matrix
         feature_matrix, _, _, row_keys = load_percolator_feature_matrix(pinfile,
                                                                         na_rows = na_rows,
-                                                                        na_features = na_feature_names)
+                                                                        na_features = na_feature_names, 
+                                                                        feature_subset = feature_subset)
+        print("Loaded row keys")
+        print(row_keys)
         nr, nc = feature_matrix.shape
         if self.verb:
             print("Finished loading feature matrix from PIN file")
