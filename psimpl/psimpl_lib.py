@@ -246,7 +246,7 @@ def load_percolator_feature_matrix(filename,
         if h not in constKeys and h!= '':
             keys.append(h)
 
-    if feature_subset:
+    if feature_subset and not feature_subset.is_empty:
         keys = feature_subset.return_overlapping_features(keys)
         print("Overlapping features:")
         print(keys)

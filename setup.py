@@ -12,7 +12,7 @@ import subprocess
 from setuptools import setup, find_packages
 
 DISTNAME = 'PSIMPL'
-VERSION = '0.0.1' # psimpl.__version__
+VERSION = '0.0.2' # psimpl.__version__
 DESCRIPTION = 'Peptide-Spectrum match IMPutation Library'
 with open('README.md') as f_in:
     LONG_DESCRIPTION = f_in.read()
