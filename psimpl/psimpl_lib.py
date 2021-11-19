@@ -247,10 +247,9 @@ def load_percolator_feature_matrix(filename,
             keys.append(h)
 
     if feature_subset:
-        print(keys)
-        feature_subset.print
+        keys = feature_subset.return_overlapping_features(keys)
         print("Overlapping features:")
-        print(feature_subset.return_overlapping_features(keys))
+        print(keys)
     featureNames = []
     for k in keys:
         featureNames.append(k)
@@ -325,6 +324,16 @@ class simple_feature_string_collection(object):
             except ValueError:
                 if not feature.isspace():
                     feature_names.append(feature)
+
+    def add_feature_names(self, list_of_features):
+        """ Given listof feature names, add to feature_strings list
+        """
+        feature_names = self.feature_strings
+        feature_name_hash = set(self.feature_strings)
+        for feature in list_of_features:
+            if feature not in feature_name_hash:
+                feature_names.append(feature)
+
     @property
     def print(self):
         if self.feature_inds:
@@ -334,6 +343,7 @@ class simple_feature_string_collection(object):
             print("Parsed feature names:")
             print(self.feature_strings)
 
+    @property
     def is_empty(self):
         if not self.feature_inds and not self.feature_strings:
             return True
@@ -448,9 +458,24 @@ class psm_imputer(object):
         self.imputed_vals_dict = {}
 
         ###############################
+        # Variables for feature subsets
+        ###############################
+        self.feature_subset = simple_feature_string_collection() # empty by default
+
+        ###############################
         # Extra variables for debugging
         ###############################
         self.row_keys = [] # feature names
+
+    def set_feature_subset(self, feature_subset_string):
+        self.feature_subset.parse_feature_subset(feature_subset_string)
+
+        # Add missing value features to the list, ensuring they are not
+        # pruned when reading in the feature matrix
+        self.feature_subset.add_feature_names(self.na_feature_names)
+
+        if self.verb:
+            self.feature_subset.print
 
     def set_regressor(self, regressor = None, 
                       alpha = None,
@@ -485,12 +510,25 @@ class psm_imputer(object):
         else:
             self.linr = linear_model.LinearRegression(normalize = True)
 
-    def impute(self, feature_subset = None):
+    def given_subset_update_na_cols(self, feature_keys):
+        """ Find position of na features in supplied feature_keys list
+        """
+        new_col_inds = []
+        feature_name_hash = set(self.na_feature_names)
+        for i, feature in enumerate(feature_keys):
+            if feature in feature_name_hash:
+                new_col_inds.append(i)
+
+        new_col_inds.sort()
+        self.na_cols = new_col_inds
+
+    def impute(self):
         """ Perform imputation in the following steps: 
             1.) Load missing value info (*should be* performed on initialization),
             2.) Load feature matrix from pinfile
             3.) Perform imputation by solving optimization problem
         """
+        feature_subset = self.feature_subset
         # input pin file
         pinfile = self.pinfile
 
@@ -508,6 +546,11 @@ class psm_imputer(object):
                                                                         na_rows = na_rows,
                                                                         na_features = na_feature_names, 
                                                                         feature_subset = feature_subset)
+
+        if not feature_subset.is_empty: # Update na column if using subset of features
+            self.given_subset_update_na_cols(row_keys)
+            na_cols = self.na_cols
+        
         print("Loaded row keys")
         print(row_keys)
         nr, nc = feature_matrix.shape

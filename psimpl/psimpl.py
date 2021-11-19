@@ -19,23 +19,21 @@ def impute_and_write_pin(args):
         -Solve optimization problem and impute values
         -Write results to an output PIN file
     """
-    feature_subset = simple_feature_string_collection() # empty by default
-    # Check whether we're working with subset of features
-    if args.use_subset_of_features: # Parse supplied features
-        if args.features_subset:
-            feature_subset.parse_feature_subset(args.features_subset)
-
-
-    if args.verbose:
-        feature_subset.print
+    # Instantiate main imputation object
     pi = psm_imputer(args.pin, 
                      verb = args.verbose,
                      debug_mode = args.turn_on_debug_mode)
+
+    # Check whether we're working with subset of features
+    if args.use_subset_of_features: # Parse supplied features
+        if args.features_subset:
+            pi.set_feature_subset(args.features_subset)
+
     # Specify regression model
     print(args.impute_regressor)
     pi.set_regressor(regressor = args.impute_regressor)
     # Solve regression problem
-    pi.impute(feature_subset)
+    pi.impute()
     # Write results to output PIN
     pi.write_imputed_values(args.output_pin, args.gzip_output)
 
