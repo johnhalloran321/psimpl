@@ -19,6 +19,13 @@ def impute_and_write_pin(args):
         -Solve optimization problem and impute values
         -Write results to an output PIN file
     """
+    feature_subset = simple_feature_string_collection() # empty by default
+    # Check whether we're working with subset of features
+    if args.use_subset_of_features: # Parse supplied features
+        if args.features_subset:
+            feature_subset.parse_feature_subset(args.features_subset)
+
+    feature_subset.print
     pi = psm_imputer(args.pin, 
                      verb = args.verbose,
                      debug_mode = args.turn_on_debug_mode)
@@ -45,20 +52,26 @@ def main():
     imputeGroup.add_argument('--impute-regressor', type = str, action= 'store', default='LinearRegression', help = 'Regressor for imputation.')
     ################ PSIMPL options
     psimplGroup = parser.add_argument_group('psimplGroup', 'Other PSIMPL options.')
-    psimplGroup.add_argument('--gen-plots', action='store_true', help = 'Generate plots for the PSM support vectors.')
-
-    psimplGroup.add_argument('--turn-on-debug-mode', action='store_true', help = 'Turn off debug mode')
-
-    psimplGroup.add_argument('--gzip-output', action='store_true', help = 'Compress output file using gzip.')
 
     psimplGroup.add_argument('--verbose', type = int, action= 'store', default=0, help='Specify the verbosity of the current command.')
 
+    psimplGroup.add_argument('--turn-on-debug-mode', action='store_true', help = 'Turn off debug mode')
+
+    psimplGroup.add_argument('--use-subset-of-features', action='store_true', help = 'Only use features specified by option --features-subset to train imputer.')
+
+    featureSubsetHelp = "Comma delimited subset of features.  Features may either be specified name or by the numerical position they occur in the PIN header." #  For numerically specified features, a contiguous range may be specified using a colon, i.e., 1:5 specifies features 1-5 in the header file."
+    imputeGroup.add_argument('--features-subset', type = str, action= 'store', default=None, help=featureSubsetHelp)
+
+    psimplGroup.add_argument('--gzip-output', action='store_true', help = 'Compress output file using gzip.')
+
     _args = parser.parse_args()
 
-    global _verbose
-    _verbose =_args.verbose
-
     assert _args.pin != None, "Please supply Percolator PIN file to impute missing values"
+
+    if _args.use_subset_of_features and not _args.features_subset:
+        print("Use subset of features is turned on, but no subset supplied using option --features-subset.  Using all features for imputation.")
+        _args.use_subset_of_features = False
+
 
     #########################
     # Run imputation worflow

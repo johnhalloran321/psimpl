@@ -295,6 +295,44 @@ def load_percolator_feature_matrix(filename,
 ####   Classes
 #####################################################
 #####################################################
+class simple_feature_string_collection(object):
+    """ Parse and keep track of specified features
+    """
+    def __init__(self):
+        self.feature_inds = []
+        self.feature_strings = []
+        self.feature_string_hash = set([])
+
+    def parse_feature_subset(self, subset_string):
+        """ Given comma-delimited string, parse into numerical and string values
+        """
+        feature_inds = self.feature_inds
+        feature_names = self.feature_strings
+        if not subset_string:
+            return None
+        for feature in subset_string.split(','):
+            if feature == '':
+                continue
+            try:
+                ind = int(feature)
+                feature_inds.append(ind)
+            except ValueError:
+                if not feature.isspace():
+                    feature_names.append(feature)
+    @property
+    def print(self):
+        if self.feature_inds:
+            print("Parsed numerical feature values:")
+            print(self.feature_inds)
+        if self.feature_strings:
+            print("Parsed feature names:")
+            print(self.feature_strings)
+
+    def is_empty(self):
+        if not self.feature_inds and not self.feature_strings:
+            return True
+        return False
+
 class missing_value_tracker(object):
     """ Class detailing missing value info for feature matrices
     """
