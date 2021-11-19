@@ -34,73 +34,6 @@ _impute_debug = True
 
 #####################################################
 #####################################################
-####   Classes
-#####################################################
-#####################################################
-class missing_value_tracker(object):
-    """ Class detailing missing value info for feature matrices
-    """
-    def __init__(self, missingValueList = ['NA', 'na']):
-        self.missingValues = set(missingValueList)
-        self.features = set([])
-        self.feature_mat_indices_psmIds = [] # row and column info for missing values
-
-    def found_missing_value(self, feature_name, row, col, psmId):
-        self.features.add(feature_name)
-        self.feature_mat_indices_psmIds.append((row,col, psmId))
-
-    def get_missing_cols(self):
-        return list(set([j for (_,j, _) in self.feature_mat_indices_psmIds]))
-
-    def get_missing_rows(self):
-        return [i for (i,_, _) in self.feature_mat_indices_psmIds]
-
-    def get_missing_psmIds(self):
-        return [k for (_,_, k) in self.feature_mat_indices_psmIds]
-
-    def get_features_with_missing_values(self):
-        return self.features
-
-class PSM(object):
-    """ Simple class to store PSM string info
-        Add scan+expMass as a PSM's hash value
-    """
-
-    def __init__(self, psmId = '', sequence = '', protein = ''):
-        self.peptide = sequence
-        # self.peptide = re.sub("[\[].*?[\]]", "", sequence) # strip any modifications
-        # # TODO: preserve this info and add it back in later
-        # self.protein = protein
-        self.psmId = psmId
-        self.left_flanking_aa = ''
-        self.right_flanking_aa = ''
-
-        # Check if there were multiple proteins
-        l = protein.split('\t')
-        if len(l) == 1:
-            self.protein = l[0]
-        elif len(l) > 1:
-            self.protein = set(l)
-        else:
-            raise ValueError("No protein(s) supplied for PSM %s, exitting" % (psmId))
-
-        # TODO: Add support for reading modifications from an input file
-        if len(sequence.split('.')) > 1: # flanking information included, split string
-            s  = sequence.split('.')
-            # should be 3 strings after the split
-            # TODO: some checking to make sure flanking amino acids are valid
-            self.left_flanking_aa = s[0]
-            self.right_flanking_aa = s[-1]
-            self.peptide = s[1]
-
-    def __hash__(self):
-        return hash((self.psmId, self.peptide))
-
-    def __str__(self):
-        return "%s-%s" % (self.psmId, self.peptide)
-
-#####################################################
-#####################################################
 ####   General plotting functions
 #####################################################
 #####################################################
@@ -150,7 +83,7 @@ def histogram_singleDist(scores, output, xax, htitle, bins = 100, prob = False, 
 
 #####################################################
 #####################################################
-####   Data loading functions
+####   Data loading/scanning functions
 #####################################################
 #####################################################
 def checkGzip_openfile(filename, mode = 'r'):
@@ -158,179 +91,6 @@ def checkGzip_openfile(filename, mode = 'r'):
         return gzip.open(filename, mode)
     else:
         return open(filename, mode)
-
-def impute_given_original_feature_matrix(feature_matrix, na_rows, na_cols,
-                                         regressor = 'LinearRegression',
-                                         alpha = 1.,
-                                         l1_ratio = 0.5):
-    """
-    """
-    linr = linear_model.LinearRegression(normalize = True)
-    if regressor == 'Ridge':
-        linr = linear_model.Ridge(alpha = alpha)
-    elif regressor == 'Lasso':
-        linr = linear_model.Lasso(alpha = alpha)
-    elif regressor == 'ElasticNet':
-        linr = linear_model.ElasticNet(alpha = alpha, l1_ratio = l1_ratio)
-        
-    nr, nc = feature_matrix.shape
-
-    missing_rows = list(na_rows)
-    full_rows = list([i for i in range(nr) if i not in set(na_rows)])
-    nonmissing_columns = [i for i in range(nc) if i not in set(na_cols)]
-    X = feature_matrix[np.ix_(full_rows, nonmissing_columns)]
-    Y = feature_matrix[np.ix_(full_rows, na_cols)]
-    # train regressor
-    linr.fit(X,Y)
-            
-    # form test data
-    X = feature_matrix[np.ix_(missing_rows, nonmissing_columns)]
-    imputed_vals = linr.predict(X).reshape(-1)
-    imputed_vals_dict = {}
-    for i, ind in zip(imputed_vals, missing_rows):
-        imputed_vals_dict[ind] = i
-    return imputed_vals_dict
-    #################### here: return imputed values and write new PIN file
-
-def impute_and_write_pin_file(pinfile, outputpin, gzipOutput = True, regressor = 'LinearRegression'):
-    """ Given Percolator PIN file and set of PSM ids, write
-    output pin consisting of feature vectors only belonging to 
-    given set of PSM ids
-    """
-    # na_tracker is a missing_value_tracker object
-    na_tracker = find_missingVals(pinfile)
-    # tracker contains which rows and columns have missing values
-    na_rows = na_tracker.get_missing_rows()
-    na_cols = na_tracker.get_missing_cols()
-    na_feature_names = na_tracker.get_features_with_missing_values()
-
-    # hashtable for rows that do not need further processing
-    rows_with_na = set(na_rows)
-
-    print("Features with missing values:")
-    print(na_feature_names)
-    # Load feature matrix
-    X, _, psmStringInfo, row_keys = load_percolator_feature_matrix_with_nas(pinfile,
-                                                                            includeBias = False, 
-                                                                            na_rows = na_rows,
-                                                                            na_features = na_feature_names)
-    ref_key = 'spectral_contrast_angle'
-    # spectral_contrast_angle
-    for i, key in enumerate(row_keys):
-        if key == 'spectral_contrast_angle':
-            sca_col = i
-            break
-    
-    print("Imputing missing values:")
-    imputed_vals_per_na_row = impute_given_original_feature_matrix(X, 
-                                                                   na_rows, na_cols)
-    writeLines = set([0]) # keep track of what line numbers to write
-
-    broken_constraints = 0
-    with checkGzip_openfile(pinfile, 'r') as f:
-        r = csv.DictReader(f, delimiter = '\t', skipinitialspace = True)
-        headerInOrder =  r.fieldnames
-        psmId_field = 'SpecId'
-        if psmId_field not in headerInOrder:
-            psmId_field = 'PSMId'
-            if psmId_field not in headerInOrder:
-                raise ValueError("No SpecId or PSMId field in PIN file %s, exitting" % (pinfile))
-
-        nonFeatureKeys = [psmId_field, 'ScanNr', 'Label', 'Peptide'] # , 'Protein']
-        p = ''
-        if 'Protein' in headerInOrder:
-            p = 'Protein'
-        elif 'Proteins' in headerInOrder:
-            p = 'Proteins'
-        else:
-            print("Protein field missing, exitting")
-            exit(-1)
-        nonFeatureKeys.append(p)
-
-        preKeys = [psmId_field, 'Label', 'ScanNr']
-        postKeys = ['Peptide', p]
-        constKeys = set(nonFeatureKeys) # exclude these when reserializing dat
-        keys = []
-        for h in headerInOrder: # keep order of keys intact
-            if h not in constKeys:
-                keys.append(h)
-
-        if os.path.splitext(outputpin)[1] == '.gz':
-            outputpin = outputpin[:-3]
-
-        na_feat = na_tracker.get_features_with_missing_values().pop()
-        with checkGzip_openfile(outputpin, 'w') as g:
-            # write new pin file header
-            for k in preKeys:
-                g.write("%s\t" % k)
-            for k in keys[:-1]:
-                g.write("%s\t" % k)
-            # Preserve the number of tabs
-            g.write("%s" % keys[-1])
-            for k in postKeys:
-                g.write("\t%s" % k)
-            g.write("\n")
-
-            ####################################
-            ############ Imputation debugging
-            ####################################
-            if _impute_debug:
-                non_imputed_vals = []
-                imputed_vals = []
-                target_imputed_vals = []
-                decoy_imputed_vals = []
-
-            for i, dict_l in enumerate(r):
-                psmId = dict_l[psmId_field]
-                if i in rows_with_na:
-                    dict_l[na_feat] = imputed_vals_per_na_row[i]
-                ####################################
-                ############ Imputation debugging
-                ####################################
-                if _impute_debug:
-                    if i in rows_with_na:
-                        imputed_vals.append(dict_l[na_feat])
-                        rk = float(dict_l[ref_key])
-                        if (rk != 0 and dict_l[na_feat] != 0) and dict_l[na_feat] < rk:
-                            broken_constraints += 1
-                            print("imputed val = %f, ref val = %f" % (dict_l[na_feat], float(dict_l[ref_key])))
-
-                        # target/decoy distributions
-                        y = int(dict_l["Label"])
-                        if y == 1:
-                            target_imputed_vals.append(dict_l[na_feat])
-                        elif y == -1:
-                            decoy_imputed_vals.append(dict_l[na_feat])
-                        else:
-                            print("Countered improper label on line %d" % (i))
-                            exit(-1)
-
-                    else:
-                        non_imputed_vals.append(float(dict_l[na_feat]))
-                        
-                for k in preKeys:
-                    g.write("%s\t" % dict_l[k])
-                for k in keys[:-1]:
-                    g.write("%s\t" % dict_l[k])
-                # Preserve the number of tabs
-                g.write("%s" % dict_l[keys[-1]])
-                for k in postKeys:
-                    g.write("\t%s" % dict_l[k])
-                g.write("\n")
-
-            ####################################
-            ############ Imputation debugging
-            ####################################
-            if _impute_debug:
-                print("%d imputed values, %d broken constraints" % (len(imputed_vals), broken_constraints))
-                histogram(non_imputed_vals, imputed_vals, 
-                          'imputed_hist.png', 
-                          target_string = 'Observed values', decoy_string = 'Imputed values')
-                histogram(target_imputed_vals, decoy_imputed_vals,
-                          'td_imputed_hist.png', 
-                          target_string = 'Target imputed values', decoy_string = 'Decoy imputed values')
-
-    return len(writeLines)
 
 def find_missingVals(filename, 
                      nonFeatureKeys = ['PSMId', 'Label', 'peptide', 'proteinIds'],
@@ -424,12 +184,11 @@ def find_missingVals(filename,
     f.close()
     return na_tracker
 
-def load_percolator_feature_matrix_with_nas(filename, 
-                                            includeBias = True, 
-                                            countUniquePeptides = False, 
-                                            message = '', 
-                                            na_rows = set([]),
-                                            na_features = set([])):
+def load_percolator_feature_matrix(filename, 
+                                   countUniquePeptides = False, 
+                                   message = '', 
+                                   na_rows = set([]),
+                                   na_features = set([])):
     """ Load Percolator feature matrix generated for each crossvalidation test bin
 
         For n input features and m total file fields, the file format is:
@@ -511,8 +270,6 @@ def load_percolator_feature_matrix_with_nas(filename,
                 except ValueError:
                     print("Could not convert feature %s with value %s to float, exitting" % (k, l[k]))
                     exit(-3)
-        if includeBias:
-            el.append(1.)
         psmInfo = PSM(l[psmId_field], l[peptideKey], l[proteinKey])
         if countUniquePeptides:
             uniquePeptides.add(l[peptideKey])
@@ -527,3 +284,312 @@ def load_percolator_feature_matrix_with_nas(filename,
         print("Loaded %d PSMs, %d unique Peptides" % (len(psmStringInfo), len(uniquePeptides)))
 
     return np.array(features), np.array(Y), psmStringInfo, keys
+
+#####################################################
+#####################################################
+####   Classes
+#####################################################
+#####################################################
+class missing_value_tracker(object):
+    """ Class detailing missing value info for feature matrices
+    """
+    def __init__(self, missingValueList = ['NA', 'na']):
+        self.missingValues = set(missingValueList)
+        self.features = set([])
+        self.feature_mat_indices_psmIds = [] # row and column info for missing values
+
+    def found_missing_value(self, feature_name, row, col, psmId):
+        self.features.add(feature_name)
+        self.feature_mat_indices_psmIds.append((row,col, psmId))
+
+    def get_missing_cols(self):
+        return list(set([j for (_,j, _) in self.feature_mat_indices_psmIds]))
+
+    def get_missing_rows(self):
+        return [i for (i,_, _) in self.feature_mat_indices_psmIds]
+
+    def get_missing_psmIds(self):
+        return [k for (_,_, k) in self.feature_mat_indices_psmIds]
+
+    def get_features_with_missing_values(self):
+        return self.features
+
+class PSM(object):
+    """ Simple class to store PSM string info
+        Add scan+expMass as a PSM's hash value
+    """
+
+    def __init__(self, psmId = '', sequence = '', protein = ''):
+        self.peptide = sequence
+        # self.peptide = re.sub("[\[].*?[\]]", "", sequence) # strip any modifications
+        # # TODO: preserve this info and add it back in later
+        # self.protein = protein
+        self.psmId = psmId
+        self.left_flanking_aa = ''
+        self.right_flanking_aa = ''
+
+        # Check if there were multiple proteins
+        l = protein.split('\t')
+        if len(l) == 1:
+            self.protein = l[0]
+        elif len(l) > 1:
+            self.protein = set(l)
+        else:
+            raise ValueError("No protein(s) supplied for PSM %s, exitting" % (psmId))
+
+        # TODO: Add support for reading modifications from an input file
+        if len(sequence.split('.')) > 1: # flanking information included, split string
+            s  = sequence.split('.')
+            # should be 3 strings after the split
+            # TODO: some checking to make sure flanking amino acids are valid
+            self.left_flanking_aa = s[0]
+            self.right_flanking_aa = s[-1]
+            self.peptide = s[1]
+
+    def __hash__(self):
+        return hash((self.psmId, self.peptide))
+
+    def __str__(self):
+        return "%s-%s" % (self.psmId, self.peptide)
+
+class psm_imputer(object):
+    """ Imputation class
+    """
+    def __init__(self, pinfile, regressor = None, 
+                 alpha = 1.,
+                 l1_ratio = 0.5,
+                 verb = 0, 
+                 debug_mode = False):
+        self.pinfile = pinfile
+        self.regressor = regressor
+        self.alpha = alpha
+        self.l1_ratio = l1_ratio
+        self.linr = None # regression function
+        self.debug_mode = debug_mode
+        self.verb = verb
+
+        if debug_mode:
+            self.verb = 10 # set to max
+
+        # Find missing values in supplied PIN file
+        # na_tracker is a missing_value_tracker object
+        self.na_tracker = find_missingVals(pinfile)
+        # grab NA info
+        self.na_rows = self.na_tracker.get_missing_rows()
+        self.na_cols = self.na_tracker.get_missing_cols()
+        self.na_feature_names = self.na_tracker.get_features_with_missing_values()
+        if self.verb:
+            print("Features with missing values:")
+            print(self.na_feature_names)
+
+        ############################
+        # Imputed value
+        ############################
+        self.imputed_vals_dict = {}
+
+        ###############################
+        # Extra variables for debugging
+        ###############################
+        self.row_keys = [] # feature names
+
+    def set_regressor(self, regressor = None, 
+                      alpha = None,
+                      l1_ratio = None):
+        if regressor:
+            self.regressor = regressor
+        if alpha:
+            self.alpha = alpha
+        if l1_ratio:
+            self.l1_ratio = l1_ratio
+
+        # Check that parameters are set
+        assert self.regressor, "Regression scheme not specified, exitting"
+        assert self.alpha and regressor != 'LinearRegression', "Regression alpha set to none, exitting"
+
+        if self.verb:
+            print("%s regression selected" % (regressor))
+        if regressor == 'Ridge':
+            if self.verb > 1:
+                print("Regression alpha = %f" % (self.alpha))
+            self.linr = linear_model.Ridge(alpha = alpha)
+        elif regressor == 'Lasso':
+            if self.verb > 1:
+                print("Regression alpha = %f" % (self.alpha))
+            self.linr = linear_model.Lasso(alpha = alpha)
+        elif regressor == 'ElasticNet':
+            assert self.l1_ratio, "Regression l1_ratio set to none, exitting"
+            if self.verb > 1:
+                print("Regression alpha = %f, l1_ration = %f" % (self.alpha, self.l1_ratio))
+            self.linr = linear_model.ElasticNet(alpha = alpha, l1_ratio = l1_ratio)
+        else:
+            self.linr = linear_model.LinearRegression(normalize = True)
+
+    def impute(self):
+        """ Perform imputation in the following steps: 
+            1.) Load missing value info (*should be* performed on initialization),
+            2.) Load feature matrix from pinfile
+            3.) Perform imputation by solving optimization problem
+        """
+        # input pin file
+        pinfile = self.pinfile
+
+        # Optimization problem
+        linr = self.linr
+
+        # Missing value info
+        na_tracker = self.na_tracker
+        na_rows = self.na_rows
+        na_cols = self.na_cols
+        na_feature_names = self.na_feature_names
+
+        # Load feature matrix
+        feature_matrix, _, _, row_keys = load_percolator_feature_matrix(pinfile,
+                                                                        na_rows = na_rows,
+                                                                        na_features = na_feature_names)
+        nr, nc = feature_matrix.shape
+        if self.verb:
+            print("Finished loading feature matrix from PIN file")
+
+        missing_rows = list(na_rows) # rows containing missing values
+        full_rows = list([i for i in range(nr) if i not in set(na_rows)])
+        nonmissing_columns = [i for i in range(nc) if i not in set(na_cols)]
+
+        if self.verb:
+            print("Imputing missing values:")
+        X = feature_matrix[np.ix_(full_rows, nonmissing_columns)]
+        Y = feature_matrix[np.ix_(full_rows, na_cols)]
+        # train regressor
+        linr.fit(X,Y)
+            
+        # form test data
+        X = feature_matrix[np.ix_(missing_rows, nonmissing_columns)]
+        imputed_vals = linr.predict(X).reshape(-1)
+        for i, ind in zip(imputed_vals, missing_rows):
+            self.imputed_vals_dict[ind] = i
+
+    def write_imputed_values(self, outputpin, gzipOutput = True):
+        assert self.imputed_vals_dict != {}, "Please impute values before calling write_imputed_values.  Exitting"
+        
+        imputed_vals_per_na_row = self.imputed_vals_dict
+        impute_debug = self.debug_mode
+        # input pin file
+        pinfile = self.pinfile
+
+        # Missing value info
+        na_tracker = self.na_tracker
+        na_rows = self.na_rows
+        na_cols = self.na_cols
+        na_feature_names = self.na_feature_names
+
+        # hashtable for rows that do not need further processing
+        rows_with_na = set(na_rows)
+
+        ref_key = 'spectral_contrast_angle'
+        
+        broken_constraints = 0
+        with checkGzip_openfile(pinfile, 'r') as f:
+            r = csv.DictReader(f, delimiter = '\t', skipinitialspace = True)
+            headerInOrder =  r.fieldnames
+            psmId_field = 'SpecId'
+            if psmId_field not in headerInOrder:
+                psmId_field = 'PSMId'
+                if psmId_field not in headerInOrder:
+                    raise ValueError("No SpecId or PSMId field in PIN file %s, exitting" % (pinfile))
+
+            nonFeatureKeys = [psmId_field, 'ScanNr', 'Label', 'Peptide']
+            p = ''
+            if 'Protein' in headerInOrder:
+                p = 'Protein'
+            elif 'Proteins' in headerInOrder:
+                p = 'Proteins'
+            else:
+                print("Protein field missing, exitting")
+                exit(-1)
+            nonFeatureKeys.append(p)
+
+            preKeys = [psmId_field, 'Label', 'ScanNr']
+            postKeys = ['Peptide', p]
+            constKeys = set(nonFeatureKeys) # exclude these when reserializing dat
+            keys = []
+            for h in headerInOrder: # keep order of keys intact
+                if h not in constKeys:
+                    keys.append(h)
+
+            if os.path.splitext(outputpin)[1] == '.gz':
+                outputpin = outputpin[:-3]
+
+            na_feat = na_tracker.get_features_with_missing_values().pop()
+            with checkGzip_openfile(outputpin, 'w') as g:
+                # write new pin file header
+                for k in preKeys:
+                    g.write("%s\t" % k)
+                for k in keys[:-1]:
+                    g.write("%s\t" % k)
+                # Preserve the number of tabs
+                g.write("%s" % keys[-1])
+                for k in postKeys:
+                    g.write("\t%s" % k)
+                g.write("\n")
+
+                ####################################
+                ############ Imputation debugging
+                ####################################
+                if impute_debug:
+                    non_imputed_vals = []
+                    imputed_vals = []
+                    target_imputed_vals = []
+                    decoy_imputed_vals = []
+
+                for i, dict_l in enumerate(r):
+                    psmId = dict_l[psmId_field]
+                    if i in rows_with_na:
+                        dict_l[na_feat] = imputed_vals_per_na_row[i]
+                    ####################################
+                    ############ Imputation debugging
+                    ####################################
+                    if impute_debug:
+                        if i in rows_with_na:
+                            imputed_vals.append(dict_l[na_feat])
+                            rk = float(dict_l[ref_key])
+                            if (rk != 0 and dict_l[na_feat] != 0) and dict_l[na_feat] < rk:
+                                broken_constraints += 1
+                                print("imputed val = %f, ref val = %f" % (dict_l[na_feat], float(dict_l[ref_key])))
+
+                            # target/decoy distributions
+                            y = int(dict_l["Label"])
+                            if y == 1:
+                                target_imputed_vals.append(dict_l[na_feat])
+                            elif y == -1:
+                                decoy_imputed_vals.append(dict_l[na_feat])
+                            else:
+                                print("Countered improper label on line %d" % (i))
+                                exit(-1)
+
+                        else:
+                            non_imputed_vals.append(float(dict_l[na_feat]))
+                        
+                    for k in preKeys:
+                        g.write("%s\t" % dict_l[k])
+                    for k in keys[:-1]:
+                        g.write("%s\t" % dict_l[k])
+                    # Preserve the number of tabs
+                    g.write("%s" % dict_l[keys[-1]])
+                    for k in postKeys:
+                        g.write("\t%s" % dict_l[k])
+                    g.write("\n")
+
+                ####################################
+                ############ Imputation debugging
+                ####################################
+                if impute_debug:
+                    print("%d imputed values, %d broken constraints" % (len(imputed_vals), broken_constraints))
+                    histogram(non_imputed_vals, imputed_vals, 
+                              'imputed_hist.png', 
+                              target_string = 'Observed values', decoy_string = 'Imputed values')
+                    histogram(target_imputed_vals, decoy_imputed_vals,
+                              'td_imputed_hist.png', 
+                              target_string = 'Target imputed values', decoy_string = 'Decoy imputed values')
+
+            
+            if self.verb:
+                print("Wrote imputed values to output file %s" % (outputpin))
