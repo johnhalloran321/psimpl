@@ -522,7 +522,7 @@ class psm_imputer(object):
         new_col_inds.sort()
         self.na_cols = new_col_inds
 
-    def impute(self):
+    def impute(self, cv_ratio = 0.0):
         """ Perform imputation in the following steps: 
             1.) Load missing value info (*should be* performed on initialization),
             2.) Load feature matrix from pinfile
@@ -559,7 +559,13 @@ class psm_imputer(object):
 
         missing_rows = list(na_rows) # rows containing missing values
         full_rows = list([i for i in range(nr) if i not in set(na_rows)])
+        random.shuffle(full_rows)
         nonmissing_columns = [i for i in range(nc) if i not in set(na_cols)]
+        if cv_ratio:
+            train_test_partition = int(len(full_rows) * (1. - cv_ratio))
+            cv_rows = list(full_rows[train_test_partition:])
+            full_rows = full_rows[:train_test_partition]
+            
 
         if self.verb >= 0:
             print("Imputing missing values")
@@ -567,6 +573,13 @@ class psm_imputer(object):
         Y = feature_matrix[np.ix_(full_rows, na_cols)]
         # train regressor
         linr.fit(X,Y)
+
+        if cv_ratio:
+            # Score learned parameters
+            X = feature_matrix[np.ix_(cv_rows, nonmissing_columns)]
+            Y = feature_matrix[np.ix_(cv_rows, na_cols)]
+            validation_scores = linr.score(X,Y)
+            print("Validation scores on %f of data = %f" % (cv_ratio, validation_scores))
             
         # form test data
         X = feature_matrix[np.ix_(missing_rows, nonmissing_columns)]

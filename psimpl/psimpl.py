@@ -33,7 +33,7 @@ def impute_and_write_pin(args):
     print(args.impute_regressor)
     pi.set_regressor(regressor = args.impute_regressor)
     # Solve regression problem
-    pi.impute()
+    pi.impute(args.cross_validation_ratio)
     # Write results to output PIN
     pi.write_imputed_values(args.output_pin, args.gzip_output)
 
@@ -54,6 +54,8 @@ def main():
     psimplGroup = parser.add_argument_group('psimplGroup', 'Other PSIMPL options.')
 
     psimplGroup.add_argument('--verbose', type = int, action= 'store', default=0, help='Specify the verbosity of the current command.')
+
+    psimplGroup.add_argument('--cross-validation-ratio', type = float, action= 'store', default=0., help='Percentage of fully observed data to use for validation.')
 
     psimplGroup.add_argument('--turn-on-debug-mode', action='store_true', help = 'Turn off debug mode')
 
